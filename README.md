@@ -577,8 +577,80 @@ This function gets the global items stamping info from the entire File Managemen
 - if the stamping was rejected by the recipient(stampingRejected), 
 
 
+Lines: #270 - #287
+```
+ function hideGlobalItem(
+        uint _index1, 
+        uint _index2, 
+        bool _isHidden
+    ) 
+    external {
+        // Get user EIN
+        uint ein = identityRegistry.getEIN(msg.sender);
+        
+        // Check Restrictions
+        globalItems[_index1][_index2].condItemOwner(ein);
+        
+        // Logic
+        globalItems[_index1][_index2].isHidden = _isHidden;
+        
+        // Trigger Event
+        emit ItemHidden(ein, globalItems[_index1][_index2].ownerInfo.EIN, _isHidden); 
+    }
+```
+
+This function gets the global items. It accepts the first(_index1) and second(_index2) index of the item  and a bool (_isHidden) as parameters.
+It gets the user EIN, checks Restrictions and set the values inputed. It then emits the ItemHidden event.
 
 
+
+Lines: #299 - #319
+```
+function getGlobalItemsMapping(
+        uint _index1, 
+        uint _index2, 
+        uint8 _ofType, 
+        uint8 _mappedIndex
+    )
+    external view
+    returns (
+        uint mappedToEIN, 
+        uint atIndex
+    ) {
+        // Allocalte based on type.
+        if (_ofType == uint8(IceGlobal.AsscProp.sharedTo)) {
+            mappedToEIN = globalItems[_index1][_index2].sharedTo[_mappedIndex].EIN;
+            atIndex = globalItems[_index1][_index2].sharedTo[_mappedIndex].index;
+        }
+        else if (_ofType == uint8(IceGlobal.AsscProp.stampedTo)) {
+            mappedToEIN = globalItems[_index1][_index2].stampingRecipient.EIN;
+            atIndex = globalItems[_index1][_index2].stampingRecipient.index; 
+        }
+    }
+```
+This function gets the info of mapping to user for a specific global item. It accepts the first(_index1) and second(_index2) index of the item, the type(where 0 is shares and 1 is stampings) and mappedIndex as the index as parameters and returns 
+- the user (EIN) at mappedToEIN 
+- the specific index in question(atIndex), only returns on shares types
+The returned values are allocated based on type
+
+ // 2. FILE FUNCTIONS
+    /**
+
+Lines: #330 - #339
+```
+function getFileIndexes(
+        uint _ein, 
+        uint _seedPointer,
+        uint16 _limit, 
+        bool _asc
+    )
+    external view
+    returns (uint[20] memory fileIndexes) {
+        fileIndexes = fileOrder[_ein].getIndexes(_seedPointer, _limit, _asc);
+    }
+
+```
+This function getsthe desired amount of files indexes (max 20 at times) of an EIN. It accepts the EIN of the user(_ein), the seed of the order from which it should begin(_seedPointer), the limit of file indexes requested and (_limit), the order by which the files will be presented(_asc) and returns the array of file indexes for the specified users(fileIndexes)
 
 
 
