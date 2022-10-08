@@ -654,12 +654,570 @@ This function getsthe desired amount of files indexes (max 20 at times) of an EI
 
 
 
+Lines: #351 - #368
+```
+function getFileInfo(
+        uint _ein, 
+        uint _fileIndex
+    )
+    external view 
+    returns (
+        uint8 protocol, 
+        bytes memory protocolMeta, 
+        string memory fileName, 
+        bytes32 fileHash, 
+        bytes22 hashExtraInfo,
+        uint8 hashFunction,
+        uint8 hashSize,
+        bool encryptedStatus
+    ) {
+        // Logic
+        (protocol, protocolMeta, fileName, fileHash, hashExtraInfo, hashFunction, hashSize, encryptedStatus) = files[_ein][_fileIndex].getFileInfo();
+}
+
+```
+This function gets the file info of an EIN. It accepts the EIN of the user(_ein), the _fileIndex is the index of the file and returns protocolMeta which contains essesntial information about the protocol if any, the name of the file along with the extension and the hash information including hashFunction, hashSize, encryptedStatus of an EIN.
+
+
+
+Lines: #375 - #380
+```
+ function getFileOtherInfo(uint _ein, uint _fileIndex)
+    external view
+    returns (uint32 timestamp, uint associatedGroupIndex, uint associatedGroupFileIndex) {
+        // Logic
+        (timestamp, associatedGroupIndex, associatedGroupFileIndex) = files[_ein][_fileIndex].getFileOtherInfo();
+}
+
+```
+This function gets the file info of an EIN. It accepts the EIN of the user(_ein)and the _fileIndex is the index of the file, it sets it for the user.
+
+
+Lines: #387 - #392
+```
+function getFileTransferInfo(uint _ein, uint _fileIndex)
+    external view
+    returns (uint transCount, uint transEIN, uint transIndex, bool forTrans) {
+        // Logic
+        (transCount, transEIN, transIndex, forTrans) = files[_ein][_fileIndex].getFileTransferInfo();
+}
+
+```
+This function gets the file transfer info of an EIN. It accepts the EIN of the user(_ein)and the _fileIndex is the index of the file, it sets the tranasfer info for the user.
+
+
+Lines: #400 - #404
+```
+ function getFileTransferOwners(uint _ein, uint _fileIndex, uint _transferCount)
+    external view
+    returns (uint recipientEIN) {
+        recipientEIN = files[_ein][_fileIndex].getFileTransferOwners(_transferCount);
+}
+
+```
+This function gets the file transfer owner info of an EIN. It accepts the EIN of the user(_ein)and the _fileIndex is the index of the file and transferCount, it sets the transfer info for the user.
+
+
+Lines: #417 - #498
+```
+function addFile(
+        uint8 _op, 
+        uint8 _protocol, 
+        bytes memory _protocolMeta, 
+        bytes32 _name, 
+        bytes32 _hash,
+        bytes22 _hashExtraInfo,
+        uint8 _hashFunction,
+        uint8 _hashSize,
+        bool _encrypted, 
+        bytes32 _encryptedHash, 
+        uint _groupIndex
+    )
+    public {
+        // Get user EIN
+        uint ein = identityRegistry.getEIN(msg.sender);
+        
+        // Check constraints
+        _groupIndex.condValidItem(groupCount[ein]);
+
+        // To fill with global index if need be
+        IceGlobal.GlobalRecord memory rec;
+        
+        // Create File
+        uint nextIndex;
+            
+        // OP 0 - Normal | 1 - Avatar
+        if (_op == 0) {
+            // Reserve Global Index
+            (globalIndex1, globalIndex2) = IceGlobal.reserveGlobalItemSlot(globalIndex1, globalIndex2);
+        
+            // Create the record
+            rec = IceGlobal.GlobalRecord(globalIndex1, globalIndex2);
+        
+            // Create File Next Index
+            nextIndex = fileCount[ein] + 1;
+            
+            // Add to globalItems
+            globalItems.addItemToGlobalItems(rec.i1, rec.i2, ein, nextIndex, true, false, 0);
+        }
+        
+        // Finally create the file object (EIN)
+        files[ein][nextIndex].createFileObject(
+            _protocolMeta,
+            
+            _groupIndex, 
+            groups[ein][_groupIndex].groupFilesCount
+        );
+        
+        // Assign global item record 
+        files[ein][nextIndex].rec = rec;
+        
+        // Also create meta object
+        files[ein][nextIndex].createFileMetaObject(
+            _protocol,
+            _name,
+            _hash,
+            _hashExtraInfo,
+            _hashFunction,
+            _hashSize,
+            _encrypted
+        );
+        
+        // OP 0 - Normal | 1 - Avatar
+        if (_op == 0) {
+            fileCount[ein] = files[ein][nextIndex].writeFile(
+                groups[ein][_groupIndex], 
+                _groupIndex, 
+                fileOrder[ein], 
+                fileCount[ein], 
+                nextIndex, 
+                ein, 
+                _encryptedHash
+            );
+        }
+        else if (_op == 1) {
+            usermeta[ein].hasAvatar = true;
+        }
+        
+        // Trigger Event
+        emit FileCreated(ein, nextIndex, IceFMS.bytes32ToString(_name));
+}
+
+```
+This function is used to add a file. It accepts parameters like protocol used(_protocol), the metadata used by the protocol if any(_protocolMeta), the name of the file(_name), the first split hash of the stored file(_hash1), the second split hash of the stored file(_hash2), defines if the file is encrypted or not(_encrypted), defines the encrypted public key password for the sender address(_encryptedHash), defines the index of the group of file(_groupIndex)
 
 
 
 
+Lines: #417 - #498
+```
+function changeFileName(
+        uint _fileIndex, 
+        bytes32 _name
+    )
+    external {
+        // Get user EIN
+        uint ein = identityRegistry.getEIN(msg.sender);
+
+        // Logic
+        files[ein][_fileIndex].fileMeta.name = _name;
+
+        // Trigger Event
+        emit FileRenamed(ein, _fileIndex, IceFMS.bytes32ToString(_name));
+}
 
 
+```
+This function is used to change a file name. It accepts parameters of the index where file is stored(_fileIndex) and the name of stored file(_name) and changes the name of the file. It emits the FileRenamed event afterwards.
+
+
+
+
+Lines: #525 - #538
+```
+function moveFileToGroup(
+        uint _fileIndex, 
+        uint _newGroupIndex
+    )
+    external {
+        // Get user EIN
+        uint ein = identityRegistry.getEIN(msg.sender);
+
+        // Logic
+        uint groupFileIndex = files[ein][_fileIndex].moveFileToGroup(_fileIndex, groups[ein], groupOrder[ein], _newGroupIndex, globalItems);
+
+        // Trigger Event
+        emit FileMoved(ein, _fileIndex, _newGroupIndex, groupFileIndex);
+}
+
+
+```
+This function is used to move a file to another group. It accepts parameters of the index where file is stored(_fileIndex) and the the index of the new group where file has to be moved. It emits the FileMoved event afterwards.
+
+
+
+Lines: #544 - #554
+```
+function deleteFile(uint _fileIndex)
+    external {
+        // Get user EIN
+        uint ein = identityRegistry.getEIN(msg.sender);
+
+        // Delegate the call
+        _deleteFileAnyOwner(ein, _fileIndex);
+        
+        // Trigger Event
+        emit FileDeleted(ein, _fileIndex);
+}
+
+```
+This function is used to delete a file of the owner. It accepts parameters of the index where file is stored(_fileIndex). It emits the FileDeleted event afterwards.
+
+
+Lines: #561 - #581
+```
+function _deleteFileAnyOwner(
+        uint _ein, 
+        uint _fileIndex
+    )
+    internal {
+        // Logic
+        files[_ein].deleteFile(
+            _ein,
+            _fileIndex,
+            files[_ein][_fileIndex].rec.getGlobalItemViaRecord(globalItems),
+            
+            fileOrder[_ein],
+            fileCount,
+            groups[_ein][files[_ein][_fileIndex].associatedGroupIndex],
+            groupOrder[_ein][files[_ein][_fileIndex].associatedGroupIndex],
+            
+            shares,
+            shareOrder,
+            shareCount
+        );
+}
+
+```
+This function is used to delete file of any EIN. It accepts parameters of the owner EIN(_ein) and the index where file is stored(_fileIndex). It emits the FileDeleted event afterwards.
+
+
+// 3. GROUP FILES FUNCTIONS
+    /**
+
+
+
+Lines: #592 - #602
+```
+  function getGroupFileIndexes(
+        uint _ein, 
+        uint _groupIndex, 
+        uint _seedPointer, 
+        uint16 _limit, 
+        bool _asc
+    )
+    external view
+    returns (uint[20] memory groupFileIndexes) {
+        return groups[_ein][_groupIndex].groupFilesOrder.getIndexes(_seedPointer, _limit, _asc);
+    }
+
+```
+This function is used to get all the files of an EIN associated with a group. It accepts parameters of the owner EIN(_ein) and the group index where group is stored(_groupIndex_), the seed of order from which it should begin(_seedPointer), the limit of file indexes requested(_limit) and the order by which the files will be presented(_asc). 
+
+
+// 4. GROUP FUNCTIONS
+    /**
+
+
+Lines: #612 - #623
+```
+    function getGroup(
+        uint _ein, 
+        uint _groupIndex
+    )
+    external view
+    returns (
+        uint index, 
+        string memory name
+    ) {
+        // Logic
+        (index, name) = groups[_ein][_groupIndex].getGroup(_groupIndex, groupCount[_ein]);
+    }
+
+```
+This function is used to return group info for an EIN. It accepts parameters of the owner EIN(_ein) and the group index where group is stored(_groupIndex_), it returns the index of the group(index), the name associated with the group(name).
+
+
+Lines: #633 - #637
+```
+ function getGroupIndexes(uint _ein, uint _seedPointer, uint16 _limit, bool _asc)
+    external view
+    returns (uint[20] memory groupIndexes) {
+        groupIndexes = groupOrder[_ein].getIndexes(_seedPointer, _limit, _asc);
+}
+
+```
+This function is used to return group indexes used to retrieve info about group. It accepts parameters of the owner EIN(_ein), the seed of order from which it should begin(_seedPointer), it returns the index of the group(index), the indexes of the groups associated with the ein in the preferred order(groupIndexes).
+
+
+Lines: #643 - #662
+```
+ function createGroup(string memory _groupName)
+    public {
+        // Get user EIN
+        uint ein = identityRegistry.getEIN(msg.sender);
+        
+        // Logic
+        uint nextGroupIndex;
+        (globalIndex1, globalIndex2, nextGroupIndex) = groups[ein].createGroup(
+            ein, 
+            _groupName, 
+            groupOrder[ein], 
+            groupCount, 
+            globalItems,
+            globalIndex1,
+            globalIndex2
+        );
+        
+        // Trigger Event
+        emit GroupCreated(ein, nextGroupIndex, _groupName);
+    }
+
+
+```
+This function is used to create a new group for the user. It accepts parameters of the name of the group(_groupName).
+It emits the GroupCreated event.
+
+
+Lines: #688 - #710
+```
+    function renameGroup(
+        uint _groupIndex, 
+        string calldata _groupName
+    )
+    external  {
+        // Get user EIN
+        uint ein = identityRegistry.getEIN(msg.sender);
+
+        // Logic
+        groups[ein][_groupIndex].renameGroup(_groupIndex, groupCount[ein], _groupName);
+        
+        // Trigger Event
+        emit GroupRenamed(ein, _groupIndex, _groupName);
+    }
+
+```
+This function is used to rename an existing Group for the user / ein. It accepts parameters of the new name of the group(_groupName) and describes the associated index of the group for the user / ein(_groupIndex). It emits the GroupRenamed event.
+
+
+Lines: #688 - #710
+```
+   function deleteGroup(uint _groupIndex)
+    external {
+        // Get user EIN
+        uint ein = identityRegistry.getEIN(msg.sender);
+
+        // Logic
+        uint currentGroupIndex = groups[ein].deleteGroup(
+            ein,
+            
+            _groupIndex,
+            groupOrder[ein], 
+            groupCount, 
+            
+            shares,
+            shareOrder,
+            shareCount,
+            
+            globalItems
+        );
+        
+        // Trigger Event
+        emit GroupDeleted(ein, _groupIndex, currentGroupIndex);
+    }
+```
+This function is used to delete an existing group for the user / ein. It accepts parameters of the associated index of the group for the user / ein(_groupIndex). It emits the GroupDeleted event.
+
+ // 4. SHARING FUNCTIONS
+    /**
+
+Lines: #719 - #733
+```
+   function shareItemToEINs(uint[] calldata _toEINs, uint _itemIndex, bool _isFile)
+    external {
+        // Get user EIN
+        uint ein = identityRegistry.getEIN(msg.sender);
+        
+        // Check if item is file or group and accordingly check if Item is valid & Logic
+        if (_isFile == true) { 
+            _itemIndex.condValidItem(fileCount[ein]);
+            shares.shareItemToEINs(globalItems, shareOrder, shareCount, blacklist, files[ein][_itemIndex].rec, ein, _toEINs);
+        }
+        else {
+            _itemIndex.condValidItem(groupCount[ein]);
+            shares.shareItemToEINs(globalItems, shareOrder, shareCount, blacklist, groups[ein][_itemIndex].rec, ein, _toEINs);
+        }
+    }
+```
+This function is used to share an item to other users, always called by owner of the Item. It accepts parameters of the array of EINs which the item should be shared to(_toEINs), the index of the item to be shared to(_itemIndex), indicates if the item is file or group(_isFile)
+
+
+
+Lines: #741 - #768
+```
+ function removeShareFromEINs(
+        uint[] memory _fromEINs, 
+        uint _itemIndex, 
+        bool _isFile
+    )
+    public {
+        // Get user EIN
+        uint ein = identityRegistry.getEIN(msg.sender);
+
+        // Check if item is file or group and accordingly check if Item is valid & Logic
+        IceGlobal.GlobalRecord memory rec;
+        if (_isFile == true) { 
+            _itemIndex.condValidItem(fileCount[ein]);
+            rec = files[ein][_itemIndex].rec;
+        }
+        else {
+            _itemIndex.condValidItem(groupCount[ein]);
+            rec = groups[ein][_itemIndex].rec;
+        }
+        
+        shares.removeShareFromEINs(
+            ein, 
+            _fromEINs,
+            globalItems[rec.i1][rec.i2], 
+            shareOrder, 
+            shareCount
+        );
+    }
+```
+This function is used to remove a shared item from the multiple user's mapping, always called by owner of the Item. It accepts parameters of the array of EINs which the item should be removed from sharing(_fromEINs), the index of the item on the owner's mapping(_itemIndex), indicates if the item is file or group(_isFile)
+
+
+
+Lines: #774 - #786
+```
+ function removeSharingItemBySharee(uint _itemIndex) 
+    external {
+        // Logic
+        uint shareeEIN = identityRegistry.getEIN(msg.sender);
+        IceGlobal.Association storage globalItem = shares[shareeEIN][_itemIndex].getGlobalItemViaRecord(globalItems);
+        
+        shares[shareeEIN].removeSharingItemBySharee( 
+            shareeEIN,
+            globalItem, 
+            shareOrder[shareeEIN], 
+            shareCount
+        );
+    }
+```
+This function is used to remove shared item by the user to whom the item is shared. It accepts parameter the index of the item on the  in shares(_itemIndex)
+
+ // 5. STAMPING FUNCTIONS
+    /**
+
+Lines: #795 - #852
+```
+function initiateStampingOfItem(
+        uint _itemIndex,
+        bool _isFile,
+        uint _recipientEIN
+    )
+    external {
+        // Logic
+        if (_isFile) {
+            stampingsReq[_recipientEIN].initiateStampingOfItem(
+                stampingReqOrder[_recipientEIN],
+                stampingReqCount,
+                
+                identityRegistry.getEIN(msg.sender),
+                _recipientEIN,
+                _itemIndex,
+                fileCount[identityRegistry.getEIN(msg.sender)],
+                
+                files[identityRegistry.getEIN(msg.sender)][_itemIndex].rec.getGlobalItemViaRecord(globalItems),
+                files[identityRegistry.getEIN(msg.sender)][_itemIndex].rec,
+                
+                blacklist,
+                identityRegistry
+            );
+            
+            // Trigger Event
+            emit StampingInitiated(
+                identityRegistry.getEIN(msg.sender), 
+                files[identityRegistry.getEIN(msg.sender)][_itemIndex].rec.i1, 
+                files[identityRegistry.getEIN(msg.sender)][_itemIndex].rec.i2, 
+                _recipientEIN
+            );
+        }
+        else {
+            stampingsReq[_recipientEIN].initiateStampingOfItem(
+                stampingReqOrder[_recipientEIN],
+                stampingReqCount,
+                
+                identityRegistry.getEIN(msg.sender),
+                _recipientEIN,
+                _itemIndex,
+                groupCount[identityRegistry.getEIN(msg.sender)],
+                
+                groups[identityRegistry.getEIN(msg.sender)][_itemIndex].rec.getGlobalItemViaRecord(globalItems),
+                groups[identityRegistry.getEIN(msg.sender)][_itemIndex].rec,
+                
+                blacklist,
+                identityRegistry
+            );
+        
+            // Trigger Event
+            emit StampingInitiated(
+                identityRegistry.getEIN(msg.sender), 
+                groups[identityRegistry.getEIN(msg.sender)][_itemIndex].rec.i1, 
+                groups[identityRegistry.getEIN(msg.sender)][_itemIndex].rec.i2, 
+                _recipientEIN
+            );
+        }
+    }
+    
+```
+This function is used to initiate stamping of an item by the owner of that item. It accepts parameters of the index of the item on the owner's mapping(_itemIndex), indicates if the item is file or group(_isFile), the recipient EIN of the user who has to stamp the item. IT emits the stampingInitiated event afterwards.
+
+
+Lines: #858 - #887
+```
+      function acceptStamping(
+        uint _stampingReqIndex
+    )
+    external {
+        // Get user EIN
+        uint recipientEIN = identityRegistry.getEIN(msg.sender);
+        
+        // Logic 
+        stampings[recipientEIN].acceptStamping(
+            stampingOrder[recipientEIN],
+            stampingCount,
+            
+            stampingsReq[recipientEIN],
+            stampingReqOrder[recipientEIN],
+            stampingReqCount,
+            
+            stampingsReq[recipientEIN][_stampingReqIndex].getGlobalItemViaRecord(globalItems),
+            
+            recipientEIN,
+            _stampingReqIndex
+        );
+        
+        // Trigger Event
+        emit StampingAccepted(
+            identityRegistry.getEIN(msg.sender), 
+            stampingsReq[recipientEIN][_stampingReqIndex].i1, 
+            stampingsReq[recipientEIN][_stampingReqIndex].i2, 
+            recipientEIN
+        );
+    } 
+```
+This function is used to initiate stamping of an item by the owner of that item. It accepts parameters of the the index of the item present in the Stamping Requests mapping of the recipient(_stampingReqIndex), indicates if the item is file or group(_isFile), the recipient EIN of the user who has to stamp the item. I emits the stampingccepted;
 
 ### References
 - https://github.com/HydroBlockchain/protocol-whitepapers/blob/master/Ice/Ice_DRAFT.md
