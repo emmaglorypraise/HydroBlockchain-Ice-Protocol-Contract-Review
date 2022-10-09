@@ -1219,6 +1219,333 @@ Lines: #858 - #887
 ```
 This function is used to initiate stamping of an item by the owner of that item. It accepts parameters of the the index of the item present in the Stamping Requests mapping of the recipient(_stampingReqIndex), indicates if the item is file or group(_isFile), the recipient EIN of the user who has to stamp the item. I emits the stampingccepted;
 
+Lines: #894 - #928
+```
+function revokeStamping(
+        uint _ownerItemIndex,
+        bool _isFile
+    )
+    external {
+        // Get user EIN
+        uint ownerEIN = identityRegistry.getEIN(msg.sender);
+        
+        // Get recipient info
+        IceGlobal.Association storage globalItem = files[ownerEIN][_ownerItemIndex].rec.getGlobalItemViaRecord(globalItems);
+        
+        if (_isFile == false) {
+            globalItem = groups[ownerEIN][_ownerItemIndex].rec.getGlobalItemViaRecord(globalItems);
+        }
+        
+        uint recipientEIN = globalItem.stampingRecipient.EIN;
+        uint recipientItemIndex = globalItem.stampingRecipient.index;
+        
+        // Trigger Event
+        emit StampingRevoked(
+            ownerEIN, 
+            stampingsReq[recipientEIN][recipientItemIndex].i1, 
+            stampingsReq[recipientEIN][recipientItemIndex].i2, 
+            recipientEIN
+        );
+        
+        // Logic
+        stampingsReq[recipientEIN].cancelStamping(
+              stampingReqOrder[recipientEIN],
+              stampingReqCount,
+              recipientEIN,
+              recipientItemIndex,
+              globalItem
+        );
+    }
+    
+```
+This function is used to revoke stamping of an item only by the owner . It accepts parameters of the the index of the item (File or Group) in relation to the owner of the item(_ownerItemIndex), and _isFile which indicates if the item is File or Group
+
+
+Lines: #934 - #963
+```
+function rejectStamping(
+        uint _recipientItemIndex
+    )
+    external {
+        // Get user EIN
+        uint recipientEIN = identityRegistry.getEIN(msg.sender);
+        
+        // Logic
+        IceGlobal.Association storage globalItem = stampingsReq[recipientEIN][_recipientItemIndex].getGlobalItemViaRecord(globalItems);
+        
+        // Trigger Event
+        emit StampingRejected(
+            globalItem.ownerInfo.EIN, 
+            stampingsReq[recipientEIN][_recipientItemIndex].i1, 
+            stampingsReq[recipientEIN][_recipientItemIndex].i2, 
+            recipientEIN
+        );
+        
+        // Reject Stamping
+        stampingsReq[recipientEIN].cancelStamping(
+              stampingReqOrder[recipientEIN],
+              stampingReqCount,
+              recipientEIN,
+              _recipientItemIndex,
+              globalItem
+        );
+        
+        // Map the rejected flag for the owner
+        globalItem.stampingRejected = true;
+    }
+    
+```
+This function is used to reject stamping of an item only by the recipient . It accepts parameters of the the the index of the item present in the Stamping Requests mapping of the recipient
+
+
+// 6. TRANSFER FILE FUNCTIONS
+    /**
+
+Lines: #971 - #1016
+```
+function initiateFileTransfer(
+        uint _fileIndex, 
+        uint _transfereeEIN
+    )
+    external {
+        // Get user EIN
+        uint transfererEIN = identityRegistry.getEIN(msg.sender);
+        
+        // Check Restrictions
+        IceFMS.doInitiateFileTransferChecks(
+            files,
+            
+            transfererEIN,
+            _transfereeEIN,
+            _fileIndex,
+            
+            fileCount,
+            groups,
+            blacklist,
+            
+            globalItems,
+            
+            identityRegistry
+        );
+        
+        // Check and change flow if white listed
+        if (whitelist[_transfereeEIN][transfererEIN] == true) {
+            // Directly transfer file, 0 is always root group
+            _doDirectFileTransfer(transfererEIN, _transfereeEIN, _fileIndex, 0);
+        }
+        else {            
+            // Trigger Event
+            emit FileTransferInitiated(transfererEIN, files[transfererEIN][_fileIndex].rec.i1, files[transfererEIN][_fileIndex].rec.i2, _transfereeEIN);
+
+            // Request based file Transfers
+            files[transfererEIN][_fileIndex].doPermissionedFileTransfer(
+                _transfereeEIN,
+                
+                transfers[_transfereeEIN],
+                transferOrder[_transfereeEIN],
+                transferCount,
+                
+                globalItems
+            );
+        }
+    }
+    
+```
+
+This function is used to intiate file transfer to another EIN(user). It accepts parameters of the the the index of file for the original user's EIN(_fileIndex) and the recipient user's EIN(_transfereeEIN). It emits FileTransferInitiated event.
+
+
+
+Lines: #1025 - #1058
+```
+function _doDirectFileTransfer(
+        uint _transfererEIN, 
+        uint _transfereeEIN, 
+        uint _fileIndex, 
+        uint _toRecipientGroup
+    )
+    internal {
+        // Trigger Event
+        emit FileTransferAccepted(_transfererEIN, files[_transfererEIN][_fileIndex].rec.i1, files[_transfererEIN][_fileIndex].rec.i2, _transfereeEIN);
+
+        // Logic
+        uint nextTransfereeIndex = files.doFileTransferPart1 (
+            _transfererEIN,
+            _transfereeEIN,
+            _fileIndex,
+            
+            fileOrder,
+            fileCount
+        );
+        
+        files.doFileTransferPart2 (
+            _transfereeEIN, 
+            _fileIndex, 
+            _toRecipientGroup,
+            groupCount[_transfereeEIN],
+            nextTransfereeIndex,
+            
+            groups,
+            globalItems
+        );
+
+        // Delete File
+        _deleteFileAnyOwner(_transfererEIN, _fileIndex);
+    }
+    
+```
+This is a private function to do file transfer from previous (current) owner to new owner. It accepts parameters of is the previous(current) owner EIN(_transfererEIN), EIN of the user to whom the file needs to be transferred(_transfereeEIN), the index where file is stored in the owner(_fileIndex), the index of the group where the file is suppose to be for the recipient(_toRecipientGroup)
+
+
+Lines: #1065 - #1101
+```
+function acceptFileTransfer(
+        uint _atRecipientTransferIndex,
+        uint _toRecipientGroup
+    )
+    external {
+        // Get user EIN | Transferee initiates this
+        uint transfereeEIN = identityRegistry.getEIN(msg.sender);
+        
+        // Get owner info
+        IceGlobal.ItemOwner memory ownerInfo = transfers[transfereeEIN][_atRecipientTransferIndex].getGlobalItemViaRecord(globalItems).ownerInfo;
+        
+        uint transfererEIN = ownerInfo.EIN;
+        uint fileIndex = ownerInfo.index;
+        
+        // Accept File Transfer Part 1
+        files.acceptFileTransferPart1(
+            transfererEIN, 
+            transfereeEIN,
+            fileIndex
+        );
+        
+        // Do file transfer
+        _doDirectFileTransfer(transfererEIN, transfereeEIN, fileIndex, _toRecipientGroup);
+        
+        // Accept File Transfer Part 2
+        files.acceptFileTransferPart2(
+            transfereeEIN,
+            
+            _atRecipientTransferIndex,
+        
+            transfers[transfereeEIN],
+            transferOrder[transfereeEIN],
+            transferCount,
+            
+            globalItems
+        );
+    }
+```
+This is a function to accept file transfer from a user. It accepts parameters of the file mapping stored no the recipient transfers mapping(_atRecipientTransferIndex), the index of the group where the file is suppose to be for the recipient(_toRecipientGroup)
+
+
+
+
+Lines: #1137 - #1168
+```function rejectFileTransfer(
+        uint _atRecipientTransferIndex
+    )
+    external 
+    returns (
+        uint, uint
+    ){
+        // Get user EIN | Transferee initiates this
+        uint transfereeEIN = identityRegistry.getEIN(msg.sender);
+        
+        // Get owner info
+        IceGlobal.ItemOwner memory ownerInfo = transfers[transfereeEIN][_atRecipientTransferIndex].getGlobalItemViaRecord(globalItems).ownerInfo;
+        
+        uint transfererEIN = ownerInfo.EIN;
+        uint fileIndex = ownerInfo.index;
+        
+        // Logic
+        files.cancelFileTransfer(
+            transfererEIN,
+            transfereeEIN,
+            fileIndex,
+            
+            transfers[transfereeEIN],
+            transferOrder[transfereeEIN],
+            transferCount,
+            
+            globalItems
+        );
+        
+        // Trigger Event
+        emit FileTransferRejected(transfererEIN, files[transfererEIN][fileIndex].rec.i1, files[transfererEIN][fileIndex].rec.i2, transfereeEIN);
+    }
+    
+```
+This is a function to revoke file transfer inititated by the current owner of that file. It accepts parameters of the EIN of the user to whom the file needs to be transferred(_transfereeEIN), the index of the group where the file is stored(_fileIndex). It emits the FileTransferRejected event. 
+
+
+ // 7. WHITELIST / BLACKLIST FUNCTIONS
+    /**
+
+
+Lines: #1175 - #1183
+```
+function addToWhitelist(uint _nonOwnerEIN)
+    external {
+        // Logic
+        uint ein = identityRegistry.getEIN(msg.sender);
+        whitelist[ein].addToWhitelist(_nonOwnerEIN, blacklist[ein]);
+
+        // Trigger Event
+        emit AddedToWhitelist(ein, _nonOwnerEIN);
+    }
+```
+This is a function to add a non-owner to whitelist. It accepts parameters of the the ein of the recipient(_nonOwnerEIN). It emits the AddedToWhitelist event.
+
+
+
+Lines: #1189 - #1197
+```
+  function removeFromWhitelist(uint _nonOwnerEIN)
+    external {
+        // Logic
+        uint ein = identityRegistry.getEIN(msg.sender);
+        whitelist[ein].removeFromWhitelist(_nonOwnerEIN, blacklist[ein]);
+
+        // Trigger Event
+        emit RemovedFromWhitelist(ein, _nonOwnerEIN);
+    }
+```
+This is a function to remove a non-owner to whitelist. It accepts parameters of the the ein of the recipient(_nonOwnerEIN). It emits the AddedToWhitelist event.
+
+
+Lines: #1203 - #1211
+```
+    function addToBlacklist(uint _nonOwnerEIN)
+    external {
+        // Logic
+        uint ein = identityRegistry.getEIN(msg.sender);
+        blacklist[ein].addToBlacklist(_nonOwnerEIN, whitelist[ein]);
+
+        // Trigger Event
+        emit AddedToBlacklist(ein, _nonOwnerEIN);
+    }
+```
+This is a function to remove a non-owner to blacklist. It accepts parameters of the the ein of the recipient(_nonOwnerEIN). It emits the AddedToBlacklist event.
+
+Lines: #1217 - #1225
+```
+    function removeFromBlacklist(uint _nonOwnerEIN)
+    external {
+        // Logic
+        uint ein = identityRegistry.getEIN(msg.sender);
+        blacklist[ein].removeFromBlacklist(_nonOwnerEIN, whitelist[ein]);
+
+        // Trigger Event
+        emit RemovedFromBlacklist(ein, _nonOwnerEIN);
+    }
+```
+This is a function to remove a non-owner to blacklist. It accepts parameters of the the ein of the recipient(_nonOwnerEIN). It emits the RemovedFromBlacklist event.
+
+
+
+
 ### References
 - https://github.com/HydroBlockchain/protocol-whitepapers/blob/master/Ice/Ice_DRAFT.md
 
